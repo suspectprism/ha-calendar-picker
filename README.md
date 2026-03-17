@@ -10,7 +10,29 @@ Originally built for watering schedules, but works for any recurring "is today a
 
 - Home Assistant with the **Local Calendar** integration enabled
 - A calendar entity (e.g. `calendar.watering`)
-- Home Assistant version **2023.11 or later** (required for `calendar.delete_event`)
+- The **Calendar Utils** integration (required for deleting events — see [Dependencies](#dependencies) below)
+
+---
+
+## Dependencies
+
+### Calendar Utils
+
+The Local Calendar integration does not expose a native delete-event action. This card uses the community [**Calendar Utils**](https://github.com/swehog/hacs_calendar_utils) integration as a fallback to handle event deletion.
+
+> **Note:** Calendar Utils is not in the main HACS catalogue. You must add it as a custom repository.
+
+**Installation:**
+
+1. In HACS, click the **⋮** menu (top-right) and choose **Custom repositories**
+2. Enter `https://github.com/swehog/hacs_calendar_utils` and set the category to **Integration**, then click **Add**
+3. Search for **Calendar Utils** in HACS → Integrations and install it
+4. Restart Home Assistant
+5. Go to **Settings → Devices & Services → + Add Integration**, search for **Calendar Utils** and add it
+
+After setup, `calendar_utils.delete_event_by_uid` should appear in **Developer Tools → Actions**.
+
+> If you use a calendar integration that natively supports event deletion (e.g. Google Calendar), Calendar Utils is not required — the card will automatically use the native action where available.
 
 ---
 
@@ -18,11 +40,12 @@ Originally built for watering schedules, but works for any recurring "is today a
 
 ### HACS (recommended)
 
-1. Open HACS in your Home Assistant sidebar
-2. Go to **Frontend**
-3. Click **+ Explore & Download Repositories**
-4. Search for **HA Calendar Picker** and install it
-5. Reload your browser
+1. Ensure [Calendar Utils](#dependencies) is installed first (see above)
+2. Open HACS in your Home Assistant sidebar
+3. Go to **Frontend**
+4. Click **+ Explore & Download Repositories**
+5. Search for **HA Calendar Picker** and install it
+6. Reload your browser
 
 ### Manual
 
@@ -127,7 +150,9 @@ The time trigger fires daily at 07:00; the calendar condition passes only on day
 
 **Adding a day:** Calls `calendar.create_event` with a summary of `event_summary` and a duration spanning 00:00 to 00:00 the following day (full-day coverage required for the calendar condition to pass).
 
-**Removing a day:** Calls `calendar.delete_event` with the event's UID — no shell commands, no Python scripts, no manual configuration required.
+**Removing a day:** The card checks at runtime which delete action is available:
+1. `calendar.delete_event` — used if the calendar integration supports it natively (e.g. Google Calendar)
+2. `calendar_utils.delete_event_by_uid` — used as a fallback for Local Calendar, which does not expose a native delete action
 
 **UI updates:** Day toggles apply optimistically so the calendar responds immediately, then re-syncs with Home Assistant in the background.
 
@@ -139,9 +164,13 @@ The time trigger fires daily at 07:00; the calendar condition passes only on day
 - Confirm the resource URL is `/local/ha-calendar-picker.js` with type **JavaScript Module**
 - Hard-refresh your browser: `Ctrl+Shift+R` (or `Cmd+Shift+R` on Mac)
 
-**Delete fails with an error**
-- Ensure your HA version is 2023.11 or later (`calendar.delete_event` was added then)
-- Check **Developer Tools → Actions**, search for `calendar.delete_event` — it must exist
+**Delete fails with "install the 'Calendar Utils' integration"**
+- The Local Calendar integration does not support native event deletion
+- Follow the [Calendar Utils installation steps](#dependencies) above
+- After installing, verify `calendar_utils.delete_event_by_uid` appears in **Developer Tools → Actions**
+
+**Delete fails with "No event UID found"**
+- Try navigating away and back to the card to force a refresh, then try again
 
 **Changes not reflected after updating the card file**
 - Bump the resource URL to bust the cache: change it to `/local/ha-calendar-picker.js?v=2` (increment on each update), then hard-refresh
