@@ -166,10 +166,24 @@ class HaCalendarPicker extends HTMLElement {
     if (!uid) {
       throw new Error(`No event UID found for ${dateStr} — try refreshing`);
     }
-    await this._hass.callService("calendar", "delete_event", {
-      entity_id: this._cfg.entity,
-      uid,
-    });
+    // Prefer the native action (works with Google Calendar etc.); fall back to
+    // the calendar_utils HACS integration for Local Calendar, which has never
+    // exposed calendar.delete_event.
+    if (this._hass.services?.calendar?.delete_event) {
+      await this._hass.callService("calendar", "delete_event", {
+        entity_id: this._cfg.entity,
+        uid,
+      });
+    } else if (this._hass.services?.calendar_utils?.delete_event_by_uid) {
+      await this._hass.callService("calendar_utils", "delete_event_by_uid", {
+        entity_id: this._cfg.entity,
+        uid,
+      });
+    } else {
+      throw new Error(
+        "Cannot delete event: install the 'Calendar Utils' integration from HACS (Integrations)"
+      );
+    }
   }
 
   async _queryUid(dateStr) {
