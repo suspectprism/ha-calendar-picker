@@ -102,7 +102,7 @@ No external JS libraries and no external network requests. The card inherits HA'
 
 ## Planned changes
 
-### Change 1 — Visual refresh (CSS only) — ✅ implemented, awaiting review in HA
+### Change 1 — Visual refresh (CSS only) — ✅ released in v1.1.0, verified in HA (browser + phone)
 
 Implementation notes (deviations/additions to the plan below):
 - Past days: **no tile background**, and the date + watering indicator at 0.35 opacity, so they're just faint numbers. Future days keep their tile. In light mode the tile/no-tile difference is what makes past vs. future obvious; opacity alone wasn't enough. Past *watering* days keep a muted grey tile with the date + indicator at 0.6; at 0.3 they were near-invisible, which made history unreadable.
