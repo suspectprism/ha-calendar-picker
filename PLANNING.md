@@ -88,7 +88,7 @@ The card surfaces a specific, actionable error message if the integration is mis
 
 ### No other runtime dependencies
 
-No external JS libraries. The Google Fonts import (`DM Sans`) is the only network request, and it is cosmetic — the card degrades to system sans-serif if the font fails to load.
+No external JS libraries and no external network requests. The card inherits HA's theme font and colours. (Earlier versions imported DM Sans from Google Fonts. This was removed in the visual refresh.)
 
 ---
 
@@ -102,7 +102,27 @@ No external JS libraries. The Google Fonts import (`DM Sans`) is the only networ
 
 ## Planned changes
 
-### Change 1 — Visual refresh (CSS only)
+### Change 1 — Visual refresh (CSS only) — ✅ implemented, awaiting review in HA
+
+Implementation notes (deviations/additions to the plan below):
+- Past days: **no tile background**, and the date + watering indicator at 0.35 opacity, so they're just faint numbers. Future days keep their tile. In light mode the tile/no-tile difference is what makes past vs. future obvious; opacity alone wasn't enough. Past *watering* days keep a muted grey tile with the date + indicator at 0.6; at 0.3 they were near-invisible, which made history unreadable.
+- Dimming is applied to the date and indicator only, not the whole cell, so corner data (observed rainfall in Change 2) stays at full strength on past days.
+- Card title now follows the HA card-header look (1.25rem, primary text colour, normal case) instead of the small uppercase accent label. Summary-bar label uses secondary text colour.
+- The DM Sans Google Fonts import was removed, so the card uses HA's own font like stock cards. This also removes the card's only external network request.
+- Header wraps onto two lines (title, then month nav) on narrow phone widths.
+- Hovering a selected day keeps its accent fill. Previously the hover style replaced it.
+- Tested in a local harness with HA dark and light theme variables at 480px and 340px widths. The date position is unchanged through select → loading → deselect.
+
+**Today circle vs. corners on phones — decided: D, implemented** (`dev/mockup.html`). A phone-width card (360px) has ~44px cells. The 1.9em today circle (26px) overlaps the watering indicator now, and would also overlap the forecast and actual rain values in Change 2. Measured clearance between the circle and each corner element (negative = overlap):
+
+| Variant | Desktop (61px cells) | Phone (44px cells) |
+|---------|------|-------|
+| A: circle 1.9em, square cells (current) | 6–10px | **−5 to −2px** |
+| B: circle 1.5em, square cells | 9–12px | **−2 to 0px** |
+| C: circle 1.9em, cells 5:6 when narrow | 6–10px | −0.4 to 1.5px |
+| D: circle 1.6em, cells 5:6 when narrow | 8–12px | **1.7–3.5px** ✓ |
+
+"When narrow" uses a container query on the grid (`@container (max-width: 400px)`), so desktop cells stay square. D was chosen: circle 1.6em, and `aspect-ratio: 5 / 6` inside `@container (max-width: 400px)` on the grid.
 
 Concerns, in priority order:
 
@@ -115,7 +135,7 @@ Plan:
 - **Separate "today" and "selected" into different visual layers.**
   - *Selected* = whole-cell treatment (accent fill + border), unchanged in concept.
   - *Today* = day-number treatment: a solid filled circle behind the number using `--primary-text-color` with the number in `--card-background-color`. This is the Google/Apple calendar convention and stacks cleanly when today is also selected.
-  - A neutral (white-on-dark) circle was chosen over HA's `--primary-color` blue because blue is reserved for rainfall (Change 2).
+  - A neutral (white-on-dark) circle was chosen over HA's `--primary-color` blue, which was originally reserved for rainfall. Rainfall now uses the default text colour too (see Change 2), but the neutral circle still fits HA's look best.
 - **Fixed date position; watering indicator in the top-left corner.**
   - Currently the date and the watering indicator (the configured `icon`) are a flex column centred as a group, so the date shifts up whenever a day is selected. With a today circle, that shift would be obvious.
   - The date is pinned to the exact centre of every cell. The watering indicator is absolutely positioned in the top-left corner, so toggling only shows or hides it. The date and today circle never move.
@@ -148,13 +168,13 @@ Show observed rainfall on past days and today, and BoM forecast rainfall on toda
 
 #### Display
 
-Cell layout (all values in a rain-blue colour):
+Cell layout (rain values in the default text colour, `--primary-text-color`):
 
 ```
 ┌──────────────┐
-│ 💧       15+ │  ← watering indicator: top-left │ forecast: top-right, small, italic, dimmer
+│ 💧       15+ │  ← watering indicator: top-left │ forecast: top-right, small, bold
 │     (6)      │  ← date, fixed at centre (today: filled circle)
-│          3.2 │  ← observed: bottom-right, small, solid
+│          3.2 │  ← observed: bottom-right, small, bold
 └──────────────┘
 ```
 
@@ -185,7 +205,14 @@ That's at most 3 characters, which fits a phone-width cell. Optionally, the full
 
 Rain features are entirely optional, so the card stays general-purpose.
 
+#### Findings from the mock-up (`dev/mockup.html`)
+
+- ~~Past-day dimming also dims rain values~~ — **Fixed in Change 1:** dimming now targets the date and indicator only.
+- ~~Forecast on a watering day has weak contrast~~ — **Decided:** rain values use the default text colour (white in dark mode), not blue, at full opacity. Forecast vs. actual is distinguished by position (top vs. bottom) alone; both values are bold, same size and colour. Italic, then regular weight, were tried for the forecast and dropped in favour of a uniform style. Verified readable on green watering cells in both dark and light mode.
+
 #### Open questions / risks
+
+- ~~Does the WU daily total reset at midnight?~~ — **Confirmed** by observation (3 Oct 2026).
 
 - ~~What BoM reports for "no rain"~~ — **Resolved:** `max` is `0`. Still treat non-numeric values (`unknown`/`unavailable`) as no data.
 - ~~BoM day rollover~~ — **Resolved:** sensors carry a `date` attribute, and the card keys forecasts by it. Between midnight and the next BoM issue (`next_issue_time` attribute, e.g. 04:15), `_0` still holds yesterday's date, so today simply shows no forecast until the refresh.

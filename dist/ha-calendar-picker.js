@@ -17,7 +17,7 @@
 //   summary_title: Upcoming dates    # optional
 //   allow_past: false                # optional
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 
 const MONTHS = [
   "January","February","March","April","May","June",
@@ -279,8 +279,8 @@ class HaCalendarPicker extends HTMLElement {
 
       cells += `
         <div class="${classes}" data-date="${dateStr}" title="${dateStr}">
-          <span class="day-num">${d}</span>
           ${isSelected && !isLoading ? `<span class="icon">${this._cfg.icon}</span>` : ""}
+          <span class="day-num">${d}</span>
           ${isLoading               ? `<span class="spinner"></span>`               : ""}
         </div>`;
     }
@@ -334,51 +334,52 @@ class HaCalendarPicker extends HTMLElement {
 
   _styles() {
     return `<style>
-      @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap');
-
-      :host { display: block; font-family: 'DM Sans', sans-serif; }
+      :host { display: block; }
 
       ha-card {
         /* --hcp-accent is set inline from config; derived variants use color-mix */
         --hcp-accent: ${DEFAULT_ACCENT};
         --hcp-accent-25: color-mix(in srgb, var(--hcp-accent) 25%, transparent);
         --hcp-accent-15: color-mix(in srgb, var(--hcp-accent) 15%, transparent);
-        --hcp-accent-12: color-mix(in srgb, var(--hcp-accent) 12%, transparent);
 
-        background: linear-gradient(145deg, #0d1f2d 0%, #122333 60%, #0a2a1e 100%);
-        color: #e8f4f0;
-        border-radius: 16px;
+        --hcp-text:    var(--primary-text-color, #e1e1e1);
+        --hcp-text-2:  var(--secondary-text-color, #9b9b9b);
+        --hcp-divider: var(--divider-color, rgba(225,225,225,0.12));
+        --hcp-card-bg: var(--ha-card-background, var(--card-background-color, #1c1c1c));
+        --hcp-surface:       color-mix(in srgb, var(--hcp-text) 5%, transparent);
+        --hcp-surface-hover: color-mix(in srgb, var(--hcp-text) 10%, transparent);
+
+        color: var(--hcp-text);
         overflow: hidden;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
       }
 
       /* ── Header ── */
       .header {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         justify-content: space-between;
-        padding: 18px 20px 10px;
-        border-bottom: 1px solid var(--hcp-accent-15);
+        gap: 8px;
+        padding: 16px 16px 10px;
+        border-bottom: 1px solid var(--hcp-divider);
       }
       .title {
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: var(--hcp-accent);
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
+        font-size: 1.25rem;
+        font-weight: 400;
+        color: var(--hcp-text);
       }
-      .month-nav { display: flex; align-items: center; gap: 12px; }
+      .month-nav { display: flex; align-items: center; gap: 8px; }
       .month-label {
         font-size: 1rem;
         font-weight: 500;
-        min-width: 140px;
+        min-width: 130px;
         text-align: center;
-        color: #c8ede0;
+        color: var(--hcp-text);
       }
       .nav-btn {
-        background: var(--hcp-accent-12);
-        border: 1px solid var(--hcp-accent-25);
-        color: var(--hcp-accent);
+        background: none;
+        border: 1px solid var(--hcp-divider);
+        color: var(--hcp-text);
         border-radius: 8px;
         width: 30px; height: 30px;
         cursor: pointer;
@@ -387,7 +388,7 @@ class HaCalendarPicker extends HTMLElement {
         transition: background 0.2s;
         user-select: none;
       }
-      .nav-btn:hover { background: var(--hcp-accent-25); }
+      .nav-btn:hover { background: var(--hcp-surface-hover); }
 
       /* ── Grid ── */
       .day-headers, .grid {
@@ -396,70 +397,90 @@ class HaCalendarPicker extends HTMLElement {
         gap: 4px;
       }
       .day-headers { padding: 10px 12px 4px; }
-      .grid        { padding: 4px 12px 12px; }
+      .grid        { padding: 4px 12px 12px; container-type: inline-size; }
 
       .day-header {
         text-align: center;
         font-size: 0.7rem;
         font-weight: 500;
-        color: rgba(200,237,224,0.45);
+        color: var(--hcp-text-2);
         letter-spacing: 0.05em;
         text-transform: uppercase;
       }
 
+      /* The date is the only in-flow child, so it stays dead centre; corner
+         elements are absolutely positioned and never shift it on toggle. */
       .day {
         position: relative;
         aspect-ratio: 1;
         border-radius: 10px;
         display: flex;
-        flex-direction: column;
         align-items: center;
         justify-content: center;
         cursor: pointer;
         transition: background 0.18s, transform 0.12s;
-        background: rgba(255,255,255,0.04);
+        background: var(--hcp-surface);
         border: 1px solid transparent;
         user-select: none;
       }
-      .day:hover:not(.empty):not(.blocked) {
-        background: var(--hcp-accent-12);
-        border-color: var(--hcp-accent-25);
-        transform: scale(1.05);
+      .day:hover:not(.empty):not(.blocked) { transform: scale(1.05); }
+      .day:hover:not(.empty):not(.blocked):not(.selected) {
+        background: var(--hcp-surface-hover);
+        border-color: var(--hcp-divider);
       }
       .day.empty   { cursor: default; background: transparent; border: none; }
-      .day.past    { opacity: 0.45; }
       .day.blocked { cursor: default; pointer-events: none; }
-      .day.today {
-        border-color: color-mix(in srgb, var(--hcp-accent) 60%, transparent);
-        background: var(--hcp-accent-12);
-      }
       .day.selected {
-        background: linear-gradient(
-          135deg,
-          color-mix(in srgb, var(--hcp-accent) 40%, #000),
-          color-mix(in srgb, var(--hcp-accent) 22%, #000)
-        );
+        background: color-mix(in srgb, var(--hcp-accent) 28%, transparent);
         border-color: var(--hcp-accent);
-        box-shadow: 0 0 12px color-mix(in srgb, var(--hcp-accent) 35%, transparent);
       }
+      .day.selected:hover { background: color-mix(in srgb, var(--hcp-accent) 38%, transparent); }
+      /* Past dimming targets the date and indicator, not the whole cell, so
+         corner data (e.g. observed rainfall) stays readable. */
+      .day.past { background: transparent; }
+      .day.past .day-num, .day.past .icon { opacity: 0.35; }
+      .day.past.selected {
+        background: color-mix(in srgb, var(--hcp-text-2) 12%, transparent);
+        border-color: color-mix(in srgb, var(--hcp-text-2) 60%, transparent);
+      }
+      .day.past.selected .day-num, .day.past.selected .icon { opacity: 0.6; }
+      .day.past.selected .icon { filter: grayscale(1); }
       .day.loading { opacity: 0.6; pointer-events: none; }
 
+      /* Phone-width cards: taller cells give the today circle room to clear
+         the corner elements. Must follow the base .day rule. */
+      @container (max-width: 400px) {
+        .day { aspect-ratio: 5 / 6; }
+      }
+
       .day-num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.6em; height: 1.6em;
+        border-radius: 50%;
         font-size: 0.85rem;
         font-weight: 500;
         line-height: 1;
-        color: #c8ede0;
+        color: var(--hcp-text);
       }
-      .day.selected .day-num {
-        color: color-mix(in srgb, var(--hcp-accent) 85%, #fff);
-        font-weight: 600;
+      .day.today .day-num {
+        background: var(--hcp-text);
+        color: var(--hcp-card-bg);
+        font-weight: 700;
       }
-      .day.today .day-num { color: var(--hcp-accent); }
 
-      .icon { font-size: 0.65rem; line-height: 1; margin-top: 1px; }
+      .icon {
+        position: absolute;
+        top: 3px; left: 4px;
+        font-size: 0.65rem;
+        line-height: 1;
+      }
 
       .spinner {
         position: absolute;
+        inset: 0;
+        margin: auto;
         width: 18px; height: 18px;
         border: 2px solid var(--hcp-accent-25);
         border-top-color: var(--hcp-accent);
@@ -471,30 +492,30 @@ class HaCalendarPicker extends HTMLElement {
       /* ── Summary bar ── */
       .summary {
         margin: 0 12px 14px;
-        background: var(--hcp-accent-12);
-        border: 1px solid var(--hcp-accent-15);
+        background: var(--hcp-surface);
+        border: 1px solid var(--hcp-divider);
         border-radius: 10px;
         padding: 10px 14px;
       }
       .summary.empty-sum {
-        color: rgba(200,237,224,0.4);
+        color: var(--hcp-text-2);
         font-size: 0.8rem;
         font-style: italic;
       }
       .sum-label {
         display: block;
         font-size: 0.75rem;
-        font-weight: 600;
-        color: var(--hcp-accent);
+        font-weight: 500;
+        color: var(--hcp-text-2);
         text-transform: uppercase;
         letter-spacing: 0.04em;
         margin-bottom: 8px;
       }
       .sum-dates { display: flex; flex-wrap: wrap; gap: 5px; }
       .tag {
-        background: color-mix(in srgb, var(--hcp-accent) 20%, transparent);
-        border: 1px solid color-mix(in srgb, var(--hcp-accent) 35%, transparent);
-        color: color-mix(in srgb, var(--hcp-accent) 85%, #fff);
+        background: color-mix(in srgb, var(--hcp-accent) 22%, transparent);
+        border: 1px solid color-mix(in srgb, var(--hcp-accent) 50%, transparent);
+        color: var(--hcp-text);
         border-radius: 5px;
         padding: 2px 8px;
         font-size: 0.75rem;
@@ -505,16 +526,16 @@ class HaCalendarPicker extends HTMLElement {
       .loading-overlay {
         text-align: center;
         padding: 20px;
-        color: rgba(200,237,224,0.4);
+        color: var(--hcp-text-2);
         font-size: 0.85rem;
       }
       .error-bar {
         margin: 8px 12px 0;
-        background: rgba(220,80,80,0.12);
-        border: 1px solid rgba(220,80,80,0.35);
+        background: color-mix(in srgb, var(--error-color, #db4437) 12%, transparent);
+        border: 1px solid color-mix(in srgb, var(--error-color, #db4437) 40%, transparent);
         border-radius: 8px;
         padding: 8px 12px;
-        color: #ff9090;
+        color: var(--error-color, #db4437);
         font-size: 0.8rem;
       }
     </style>`;

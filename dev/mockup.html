@@ -1,0 +1,122 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Calendar Picker Mock-up</title>
+<style>
+  body { margin: 0; padding: 16px; font-family: Roboto, "Segoe UI", sans-serif; background: #333; color: #eee; }
+  h2 { font-weight: 400; margin: 8px 0 12px; font-size: 1.1rem; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 28px; }
+  .dark, .light { padding: 12px; }
+  .dark {
+    --primary-text-color: #e1e1e1; --secondary-text-color: #9b9b9b;
+    --card-background-color: #1c1c1c; --divider-color: rgba(225,225,225,0.12);
+    --error-color: #db4437; --info-color: #039be5; background: #111111;
+  }
+  .light {
+    --primary-text-color: #212121; --secondary-text-color: #727272;
+    --card-background-color: #ffffff; --divider-color: rgba(0,0,0,0.12);
+    --error-color: #db4437; --info-color: #039be5; background: #fafafa;
+  }
+  .label { font-size: 0.75rem; opacity: 0.7; margin-bottom: 6px; }
+  .light .label { color: #333; }
+  .desk { width: 480px; } .phone { width: 360px; }
+</style>
+<script>
+  customElements.define("ha-card", class extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" }).innerHTML =
+        `<style>:host{display:block;background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--divider-color);border-radius:12px;}</style><slot></slot>`;
+    }
+  });
+</script>
+<script src="../dist/ha-calendar-picker.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script>
+  const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  const rel = n => { const d = new Date(); d.setDate(d.getDate() + n); return fmt(d); };
+
+  // Draft rainfall styling (Change 2) — overlaid onto the real card for mock-up purposes only.
+  const RAIN_CSS = `
+    .rain { position: absolute; right: 4px; font-size: 0.6rem; font-weight: 700; line-height: 1;
+            color: var(--hcp-text); pointer-events: none; }
+    .rain.fc  { top: 3px; }
+    .rain.obs { bottom: 3px; }`;
+
+  const Card = customElements.get("ha-calendar-picker");
+  const origRender = Card.prototype._render;
+  Card.prototype._render = function () {
+    origRender.call(this);
+    const m = this._mock;
+    if (!m) return;
+    const sr = this.shadowRoot;
+    const style = document.createElement("style");
+    style.textContent = RAIN_CSS + (m.css || "");
+    sr.appendChild(style);
+    for (const [date, r] of Object.entries(m.rain || {})) {
+      const cell = sr.querySelector(`.day[data-date="${date}"]`);
+      if (!cell) continue;
+      if (r.f) cell.insertAdjacentHTML("beforeend", `<span class="rain fc">${r.f}</span>`);
+      if (r.a) cell.insertAdjacentHTML("beforeend", `<span class="rain obs">${r.a}</span>`);
+    }
+  };
+
+  function mockHass(offsets) {
+    const events = offsets.map((n, i) => ({ uid: "u" + i, start: { dateTime: rel(n) + "T00:00:00" } }));
+    return { services: {}, async callApi() { return events; }, async callService() {} };
+  }
+
+  // Today: real values for 3 Oct 2026 (15+ forecast, 31 actual). Other days are illustrative.
+  const RAIN = {
+    [rel(-2)]: { a: "0.4" },
+    [rel(-1)]: { a: "2.6" },
+    [rel(0)]:  { f: "15+", a: "31" },
+    [rel(1)]:  { f: "5+" },
+    [rel(2)]:  { f: "<1" },
+    [rel(4)]:  { f: "<5" },
+  };
+
+  // Extra CSS per variant, layered on top of the card's own styles.
+  const VARIANTS = [
+    { name: "Card as implemented + draft rainfall", css: "" },
+  ];
+
+  const root = document.getElementById("root");
+  for (const v of VARIANTS) {
+    root.insertAdjacentHTML("beforeend", `<h2>${v.name}</h2>`);
+    const row = document.createElement("div");
+    row.className = "row";
+    root.appendChild(row);
+
+    const cards = [
+      { theme: "dark",  size: "desk",  label: "Desktop · dark · watering + rain",
+        cfg: { title: "Watering Schedule", icon: "💧", summary_title: "Upcoming watering days" },
+        events: [-5, -1, 0, 4, 7], rain: RAIN },
+      { theme: "dark",  size: "phone", label: "Phone · dark · watering + rain",
+        cfg: { title: "Watering Schedule", icon: "💧", summary_title: "Upcoming watering days" },
+        events: [-5, -1, 0, 4, 7], rain: RAIN },
+      { theme: "light", size: "phone", label: "Phone · light · watering + rain",
+        cfg: { title: "Watering Schedule", icon: "💧", summary_title: "Upcoming watering days" },
+        events: [-5, -1, 0, 4, 7], rain: RAIN },
+      { theme: "light", size: "phone", label: "Phone · light · bins (no rain)",
+        cfg: { title: "Bin Collection", icon: "🗑️", accent_color: "#a0c4ff" },
+        events: [-7, 0, 7] },
+    ];
+    for (const c of cards) {
+      const wrap = document.createElement("div");
+      wrap.className = c.theme;
+      wrap.innerHTML = `<div class="label">${c.label}</div><div class="${c.size}"></div>`;
+      row.appendChild(wrap);
+      const el = document.createElement("ha-calendar-picker");
+      el._mock = { rain: c.rain, css: v.css };
+      el.setConfig({ entity: "calendar.mock", ...c.cfg });
+      el.hass = mockHass(c.events);
+      wrap.lastElementChild.appendChild(el);
+    }
+  }
+</script>
+</body>
+</html>
