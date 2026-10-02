@@ -116,12 +116,17 @@ Plan:
   - *Selected* = whole-cell treatment (accent fill + border), unchanged in concept.
   - *Today* = day-number treatment: a solid filled circle behind the number using `--primary-text-color` with the number in `--card-background-color`. This is the Google/Apple calendar convention and stacks cleanly when today is also selected.
   - A neutral (white-on-dark) circle was chosen over HA's `--primary-color` blue because blue is reserved for rainfall (Change 2).
+- **Fixed date position; watering indicator in the top-left corner.**
+  - Currently the date and the watering indicator (the configured `icon`) are a flex column centred as a group, so the date shifts up whenever a day is selected. With a today circle, that shift would be obvious.
+  - The date is pinned to the exact centre of every cell. The watering indicator is absolutely positioned in the top-left corner, so toggling only shows or hides it. The date and today circle never move.
+  - Considered: indicator on the same line as the date. Rejected because a centred group shifts the date on toggle, and an anchored date + circle + indicator is too wide for a ~45px phone cell.
+  - Gives each region one job: top-left = watering, right column = rain (Change 2), centre = date.
 - **Adopt HA theme variables** instead of hard-coded colours:
   - Remove the custom navy→green gradient; use `ha-card`'s default background.
   - Replace `#c8ede0` / `#e8f4f0` / `rgba(200,237,224,…)` with `--primary-text-color`, `--secondary-text-color`, `--divider-color`.
   - Keep `--hcp-accent` only for selection-related elements.
   - Side benefit: the card works in light mode too.
-- **Dim past days further**: opacity 0.45 → ~0.3, and desaturate *selected* past days (grey border/fill, greyscale icon) so history doesn't compete with upcoming days.
+- **Dim past days further**: opacity 0.45 → ~0.3, and desaturate *selected* past days (grey border/fill, greyscale watering indicator) so history doesn't compete with upcoming days.
 
 ### Change 2 — Rainfall per day
 
@@ -135,7 +140,7 @@ Show observed rainfall on past days and today, and BoM forecast rainfall on toda
 | Observed (past days) | same sensor, via long-term statistics | See below |
 | Forecast (days 0–6) | `sensor.phillip_rain_amount_min_N` / `_max_N` | [bremor/bureau_of_meteorology](https://github.com/bremor/bureau_of_meteorology); `N=0` is today |
 
-**Past observed values** are fetched with the websocket call `recorder/statistics_during_period` (via `hass.callWS`) with `period: "day"` and `types: ["change"]`. Because the sensor is `total_increasing`, HA treats the midnight drop to 0 as a meter reset, so the daily `change` equals that day's rainfall. (`min`/`max`/`mean` statistics are only generated for `state_class: measurement`, so they're not available here.) Long-term statistics are kept indefinitely, so browsing earlier months works.
+**Past observed values** are fetched with the websocket call `recorder/statistics_during_period` (via `hass.callWS`) with `period: "day"` and `types: ["change"]`. Because the sensor is `total_increasing`, HA treats the midnight drop to 0 as a meter reset, so the daily `change` equals that day's rainfall. (`min`/`max`/`mean` statistics are only generated for `state_class: measurement`, so they're not available here.) Long-term statistics are generated automatically (the sensor has a `state_class` and unit) and kept indefinitely, unlike raw state history, which is purged after `purge_keep_days` (default 10). No helper or extra entities are needed, and browsing earlier months works. Data only exists from when `state_class` was first set. Check in Developer Tools → Statistics.
 
 **Today's observed value** comes straight from `hass.states`. Statistics are compiled hourly and lag behind.
 
@@ -147,14 +152,14 @@ Cell layout (all values in a rain-blue colour):
 
 ```
 ┌──────────────┐
-│          15+ │  ← forecast: top-right corner, small, italic, dimmer
-│      6       │  ← day number (today: filled circle)
-│      💧      │  ← selected icon
-│      3.2     │  ← observed: bottom line, solid
+│ 💧       15+ │  ← watering indicator: top-left │ forecast: top-right, small, italic, dimmer
+│     (6)      │  ← date, fixed at centre (today: filled circle)
+│          3.2 │  ← observed: bottom-right, small, solid
 └──────────────┘
 ```
 
-- Observed and forecast occupy **different positions**, so today can show both without a 4th line.
+- All rain data lives in the right-hand column, and the date stays fixed at the centre.
+- Each value has a fixed position (top = forecast, bottom = actual), so they're distinguishable by position as well as by style. Today shows both stacked.
 - Zero / no data → blank.
 - Observed: round to 1 decimal place if < 10, whole number otherwise (e.g. `0.4`, `3.2`, `12`).
 
@@ -168,7 +173,7 @@ Cell layout (all values in a rain-blue colour):
 
 That's at most 3 characters, which fits a phone-width cell. Optionally, the full ranges (e.g. `15–30 mm`) appear in a 7-day forecast row in the summary bar, because tap is already used for toggling and tooltips don't work on touch.
 
-**Cell size:** three stacked elements plus a corner label is tight in a square cell on a phone. Allow cells to be slightly taller than square (e.g. `aspect-ratio: 1 / 1.15`) if needed.
+**Cell size:** with rain values in the corners, the centre only holds the date, so square cells should still work. Check on a phone-width viewport; fall back to `aspect-ratio: 1 / 1.15` if the corners crowd the number.
 
 #### New config options (proposed)
 
@@ -196,7 +201,7 @@ Rain features are entirely optional, so the card stays general-purpose.
 |--------|---------|-------|
 | `entity` | required | Calendar entity ID |
 | `title` | `"Schedule"` | Card header |
-| `icon` | `"📅"` | Emoji on selected days |
+| `icon` | `"📅"` | Watering indicator — emoji on selected days |
 | `event_summary` | `"<icon> <title>"` | Stored as the HA event summary |
 | `accent_color` | `"#4dc98a"` | Hex; drives all derived CSS colours |
 | `show_summary_bar` | `true` | Upcoming-dates strip at the bottom |
