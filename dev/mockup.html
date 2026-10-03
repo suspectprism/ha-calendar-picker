@@ -21,6 +21,9 @@
   .label { font-size: 0.75rem; opacity: 0.7; margin-bottom: 6px; }
   .light .label { color: #333; }
   .desk { width: 480px; } .phone { width: 360px; }
+  body.shot { padding: 0; background: transparent; }
+  body.shot .row { margin: 0; }
+  body.shot .label { display: none; }
 </style>
 <script>
   customElements.define("ha-card", class extends HTMLElement {
@@ -39,83 +42,70 @@
   const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   const rel = n => { const d = new Date(); d.setDate(d.getDate() + n); return fmt(d); };
 
-  // Draft rainfall styling (Change 2) — overlaid onto the real card for mock-up purposes only.
-  const RAIN_CSS = `
-    .rain { position: absolute; right: 4px; font-size: 0.6rem; font-weight: 700; line-height: 1;
-            color: var(--hcp-text); pointer-events: none; }
-    .rain.fc  { top: 3px; }
-    .rain.obs { bottom: 3px; }`;
+  // Mock HA: calendar events, live sensor states, and recorder statistics.
+  const RAIN_ENTITY = "sensor.mock_rainfall_today";
+  const BOM_PREFIX  = "sensor.mock";
 
-  const Card = customElements.get("ha-calendar-picker");
-  const origRender = Card.prototype._render;
-  Card.prototype._render = function () {
-    origRender.call(this);
-    const m = this._mock;
-    if (!m) return;
-    const sr = this.shadowRoot;
-    const style = document.createElement("style");
-    style.textContent = RAIN_CSS + (m.css || "");
-    sr.appendChild(style);
-    for (const [date, r] of Object.entries(m.rain || {})) {
-      const cell = sr.querySelector(`.day[data-date="${date}"]`);
-      if (!cell) continue;
-      if (r.f) cell.insertAdjacentHTML("beforeend", `<span class="rain fc">${r.f}</span>`);
-      if (r.a) cell.insertAdjacentHTML("beforeend", `<span class="rain obs">${r.a}</span>`);
+  // Today: real values for 3 Oct 2026 (15–30 forecast, 31 actual). Others illustrative.
+  const OBSERVED = { [-1]: 2.6, [-2]: 0.4, [-5]: 12.3, [-9]: 0.2, [-20]: 7.94, [-33]: 18 };
+  const FORECAST = [[15, 30], [5, 10], [0, 1], [0, 0], [0, 5], [0, 0], [1, 5]];
+
+  function mockHass(eventOffsets, { rain = true } = {}) {
+    const events = eventOffsets.map((n, i) => ({ uid: "u" + i, start: { dateTime: rel(n) + "T00:00:00" } }));
+    const states = {};
+    if (rain) {
+      states[RAIN_ENTITY] = { state: "31" };
+      FORECAST.forEach(([min, max], n) => {
+        const date = rel(n) + "T00:00:00+10:00";
+        states[`${BOM_PREFIX}_rain_amount_min_${n}`] = { state: String(min), attributes: { date } };
+        states[`${BOM_PREFIX}_rain_amount_max_${n}`] = { state: String(max), attributes: { date } };
+      });
     }
-  };
-
-  function mockHass(offsets) {
-    const events = offsets.map((n, i) => ({ uid: "u" + i, start: { dateTime: rel(n) + "T00:00:00" } }));
-    return { services: {}, async callApi() { return events; }, async callService() {} };
+    return {
+      states,
+      services: {},
+      async callApi() { return events; },
+      async callService() {},
+      async callWS(msg) {
+        if (msg.type !== "recorder/statistics_during_period") throw new Error("unexpected " + msg.type);
+        const rows = Object.entries(OBSERVED).map(([n, change]) => {
+          const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + +n);
+          return { start: d.getTime(), end: d.getTime() + 864e5, change };
+        });
+        // A partial row for today, which the card must ignore in favour of the live state.
+        const t = new Date(); t.setHours(0, 0, 0, 0);
+        rows.push({ start: t.getTime(), end: t.getTime() + 864e5, change: 20 });
+        return { [msg.statistic_ids[0]]: rows };
+      },
+    };
   }
 
-  // Today: real values for 3 Oct 2026 (15+ forecast, 31 actual). Other days are illustrative.
-  const RAIN = {
-    [rel(-2)]: { a: "0.4" },
-    [rel(-1)]: { a: "2.6" },
-    [rel(0)]:  { f: "15+", a: "31" },
-    [rel(1)]:  { f: "5+" },
-    [rel(2)]:  { f: "<1" },
-    [rel(4)]:  { f: "<5" },
-  };
-
-  // Extra CSS per variant, layered on top of the card's own styles.
-  const VARIANTS = [
-    { name: "Card as implemented + draft rainfall", css: "" },
+  const WATER = { title: "Watering Schedule", icon: "💧", summary_title: "Upcoming watering days",
+                  rain_entity: RAIN_ENTITY, rain_forecast_prefix: BOM_PREFIX };
+  const cards = [
+    { theme: "dark",  size: "desk",  label: "Desktop · dark · watering + rain", cfg: WATER, events: [-5, -1, 0, 4, 7] },
+    { theme: "dark",  size: "phone", label: "Phone · dark · watering + rain",   cfg: WATER, events: [-5, -1, 0, 4, 7] },
+    { theme: "light", size: "phone", label: "Phone · light · watering + rain",  cfg: WATER, events: [-5, -1, 0, 4, 7] },
+    { theme: "light", size: "phone", label: "Phone · light · bins (no rain config)",
+      cfg: { title: "Bin Collection", icon: "🗑️", accent_color: "#a0c4ff" }, events: [-7, 0, 7], rain: false },
   ];
 
-  const root = document.getElementById("root");
-  for (const v of VARIANTS) {
-    root.insertAdjacentHTML("beforeend", `<h2>${v.name}</h2>`);
-    const row = document.createElement("div");
-    row.className = "row";
-    root.appendChild(row);
+  // ?only=N renders just card N with no label, for README screenshots.
+  const only = new URLSearchParams(location.search).get("only");
+  if (only !== null) document.body.classList.add("shot");
 
-    const cards = [
-      { theme: "dark",  size: "desk",  label: "Desktop · dark · watering + rain",
-        cfg: { title: "Watering Schedule", icon: "💧", summary_title: "Upcoming watering days" },
-        events: [-5, -1, 0, 4, 7], rain: RAIN },
-      { theme: "dark",  size: "phone", label: "Phone · dark · watering + rain",
-        cfg: { title: "Watering Schedule", icon: "💧", summary_title: "Upcoming watering days" },
-        events: [-5, -1, 0, 4, 7], rain: RAIN },
-      { theme: "light", size: "phone", label: "Phone · light · watering + rain",
-        cfg: { title: "Watering Schedule", icon: "💧", summary_title: "Upcoming watering days" },
-        events: [-5, -1, 0, 4, 7], rain: RAIN },
-      { theme: "light", size: "phone", label: "Phone · light · bins (no rain)",
-        cfg: { title: "Bin Collection", icon: "🗑️", accent_color: "#a0c4ff" },
-        events: [-7, 0, 7] },
-    ];
-    for (const c of cards) {
-      const wrap = document.createElement("div");
-      wrap.className = c.theme;
-      wrap.innerHTML = `<div class="label">${c.label}</div><div class="${c.size}"></div>`;
-      row.appendChild(wrap);
-      const el = document.createElement("ha-calendar-picker");
-      el._mock = { rain: c.rain, css: v.css };
-      el.setConfig({ entity: "calendar.mock", ...c.cfg });
-      el.hass = mockHass(c.events);
-      wrap.lastElementChild.appendChild(el);
-    }
+  const row = document.createElement("div");
+  row.className = "row";
+  document.getElementById("root").appendChild(row);
+  for (const c of only !== null ? [cards[+only]] : cards) {
+    const wrap = document.createElement("div");
+    wrap.className = c.theme;
+    wrap.innerHTML = `<div class="label">${c.label}</div><div class="${c.size}"></div>`;
+    row.appendChild(wrap);
+    const el = document.createElement("ha-calendar-picker");
+    el.setConfig({ entity: "calendar.mock", ...c.cfg });
+    el.hass = mockHass(c.events, { rain: c.rain !== false });
+    wrap.lastElementChild.appendChild(el);
   }
 </script>
 </body>
