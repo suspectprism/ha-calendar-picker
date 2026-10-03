@@ -4,6 +4,10 @@ A custom Home Assistant Lovelace card that turns any Local Calendar entity into 
 
 Originally built for watering schedules, but works for any recurring "is today a selected day?" use case — bin collection, medication reminders, irrigation zones, and more.
 
+![Watering schedule card in dark mode, with today circled, watering days highlighted, and rainfall in the corners of each day](https://raw.githubusercontent.com/suspectprism/ha-calendar-picker/main/images/desktop-dark.png)
+
+Today is shown as a filled circle, and selected days are highlighted in the accent colour with the `icon` in the top-left corner. Past days are dimmed. The rainfall figures in the corners are an [optional feature](#rainfall-optional).
+
 ---
 
 ## Requirements
@@ -88,6 +92,8 @@ entity: calendar.watering
 | `show_summary_bar` | boolean | `true` | Show the upcoming-dates strip at the bottom |
 | `summary_title` | string | `"Upcoming <title>"` | Label shown in the summary bar |
 | `allow_past` | boolean | `false` | Allow toggling past dates |
+| `rain_entity` | string | — | Daily rainfall sensor; shows observed rain on past days and today. See [Rainfall](#rainfall-optional) |
+| `rain_forecast_prefix` | string | — | BoM forecast sensor prefix; shows forecast rain on today and the next 6 days. See [Rainfall](#rainfall-optional) |
 
 ### Example — Watering schedule
 
@@ -117,6 +123,69 @@ summary_title: Collection days
 ```yaml
 type: custom:ha-calendar-picker
 entity: calendar.my_calendar
+```
+
+---
+
+## Rainfall (optional)
+
+For a watering schedule, the deciding factor is usually rainfall: how many days since the garden last got good rain, and when more is forecast. Instead of comparing the calendar with a separate weather card, the card can show rainfall directly on each day:
+
+- **Top-right:** forecast rain (today and the next 6 days)
+- **Bottom-right:** observed rain (past days and today so far)
+
+Hover over a day to see the full forecast range and observed amount in millimetres.
+
+<p>
+  <img src="https://raw.githubusercontent.com/suspectprism/ha-calendar-picker/main/images/phone-dark.png" width="320" alt="Card at phone width in dark mode, showing forecast rain top-right and observed rain bottom-right">
+  <img src="https://raw.githubusercontent.com/suspectprism/ha-calendar-picker/main/images/phone-light.png" width="320" alt="The same card at phone width in light mode">
+</p>
+
+*Phone width, dark and light themes. On 3 October, 15+ mm was forecast and 31 mm had fallen so far.*
+
+> **This feature is niche.** It's only useful if you have a suitable rainfall sensor and/or forecast sensors, described below. Without these options the card works exactly as before.
+
+### Observed rainfall — `rain_entity`
+
+A sensor holding **today's rainfall total in mm, resetting to 0 at midnight**, with `state_class: total_increasing`. For example, a Weather Underground personal weather station via a REST sensor:
+
+```yaml
+- name: "My Station Rainfall Today"
+  unique_id: my_station_precip_today
+  value_template: "{{ value_json.observations[0].metric.precipTotal }}"
+  unit_of_measurement: "mm"
+  device_class: precipitation
+  state_class: total_increasing
+```
+
+Today's value is read live. Past days come from Home Assistant's long-term statistics, which are generated automatically for sensors with a `state_class` and kept indefinitely, so no helpers or extra entities are needed. History is only available from when `state_class` was first set on the sensor. To check that statistics are being recorded, search for the sensor in **Developer Tools → Statistics**.
+
+### Forecast rainfall — `rain_forecast_prefix`
+
+Designed for the [Bureau of Meteorology integration](https://github.com/bremor/bureau_of_meteorology) (Australia), which creates per-day sensors such as `sensor.<place>_rain_amount_min_0` / `_max_0` through `_6`. Set the prefix to the part before `_rain_amount`:
+
+```yaml
+rain_forecast_prefix: sensor.tuggeranong
+```
+
+BoM gives a range (e.g. 15–30 mm). To fit a phone-sized cell, the card shows a short label:
+
+| BoM range | Cell shows | Meaning |
+|-----------|-----------|---------|
+| 0 | *(blank)* | No rain forecast |
+| 0–5 | `<5` | Up to 5 mm possible |
+| 15–30 | `15+` | 50% chance of at least 15 mm |
+
+### Example — Watering schedule with rainfall
+
+```yaml
+type: custom:ha-calendar-picker
+entity: calendar.watering
+title: Watering Schedule
+icon: "💧"
+summary_title: Upcoming watering days
+rain_entity: sensor.my_station_rainfall_today
+rain_forecast_prefix: sensor.tuggeranong
 ```
 
 ---

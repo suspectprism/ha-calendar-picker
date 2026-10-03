@@ -9,3 +9,6 @@ Thumbs.db
 
 # Node (if a build step is ever added)
 node_modules/
+
+# Personal planning notes (contain my own HA entity IDs)
+PLANNING.md

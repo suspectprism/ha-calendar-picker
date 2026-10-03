@@ -16,8 +16,10 @@
 //   show_summary_bar: true           # optional
 //   summary_title: Upcoming dates    # optional
 //   allow_past: false                # optional
+//   rain_entity: sensor.rain_today   # optional — daily rainfall total (mm)
+//   rain_forecast_prefix: sensor.x   # optional — BoM <prefix>_rain_amount_min_N / _max_N
 
-const VERSION = "1.1.0";
+const VERSION = "1.2.0";
 
 const MONTHS = [
   "January","February","March","April","May","June",
@@ -47,6 +49,8 @@ class HaCalendarPicker extends HTMLElement {
     this._loading      = new Set();   // days currently being toggled
     this._eventsLoaded = false;
     this._lastError    = null;        // string | null
+    this._rainObserved = {};          // "YYYY-MM-DD" -> mm (past days, from statistics)
+    this._rainSig      = "";          // last-rendered live rain state, to skip no-op renders
   }
 
   setConfig(config) {
@@ -64,6 +68,8 @@ class HaCalendarPicker extends HTMLElement {
       showSummaryBar: config.show_summary_bar !== false,   // default true
       summaryTitle:   config.summary_title   ?? `Upcoming ${title}`,
       allowPast:      config.allow_past      === true,     // default false
+      rainEntity:         config.rain_entity          ?? null,
+      rainForecastPrefix: config.rain_forecast_prefix ?? null,
     };
     this._render();
   }
@@ -71,8 +77,23 @@ class HaCalendarPicker extends HTMLElement {
   set hass(hass) {
     const initial = !this._hass;
     this._hass = hass;
-    if (initial || !this._eventsLoaded) {
+
+    // A dashboard left open past midnight must move "today" on.
+    const rolledOver = this._fmtDate(new Date()) !== this._fmtDate(this._today);
+    if (rolledOver) this._today = new Date();
+
+    if (initial || rolledOver) this._fetchRainHistory();
+    if (initial || rolledOver || !this._eventsLoaded) {
+      this._rainSig = this._liveRainSignature();
       this._fetchEvents();
+      return;
+    }
+
+    // hass updates arrive constantly; only re-render when a rain entity changed.
+    const sig = this._liveRainSignature();
+    if (sig !== this._rainSig) {
+      this._rainSig = sig;
+      this._render();
     }
   }
 
@@ -111,6 +132,78 @@ class HaCalendarPicker extends HTMLElement {
     }
 
     this._render();
+  }
+
+  // ── Rainfall ──────────────────────────────────────────────────────────────
+
+  // Past days come from long-term statistics. For a total_increasing sensor
+  // that resets at midnight, a day's "change" is that day's rainfall.
+  async _fetchRainHistory() {
+    const id = this._cfg.rainEntity;
+    if (!this._hass || !id) return;
+
+    const start = new Date(this._viewYear, this._viewMonth - 1, 1);
+    const end   = new Date(this._viewYear, this._viewMonth + 2, 1);
+    try {
+      const resp = await this._hass.callWS({
+        type:          "recorder/statistics_during_period",
+        start_time:    start.toISOString(),
+        end_time:      end.toISOString(),
+        statistic_ids: [id],
+        period:        "day",
+        types:         ["change"],
+      });
+      const map = {};
+      for (const row of resp?.[id] ?? []) {
+        if (row.change > 0) map[this._fmtDate(new Date(row.start))] = row.change;
+      }
+      this._rainObserved = map;
+    } catch (e) {
+      console.warn(`ha-calendar-picker: could not load rainfall statistics for ${id}`, e);
+    }
+    this._render();
+  }
+
+  _forecastEntityIds(n) {
+    const p = this._cfg.rainForecastPrefix;
+    return [`${p}_rain_amount_min_${n}`, `${p}_rain_amount_max_${n}`];
+  }
+
+  _liveRainSignature() {
+    if (!this._hass) return "";
+    const ids = [];
+    if (this._cfg.rainEntity) ids.push(this._cfg.rainEntity);
+    if (this._cfg.rainForecastPrefix) {
+      for (let n = 0; n < 7; n++) ids.push(...this._forecastEntityIds(n));
+    }
+    return ids.map(id => {
+      const s = this._hass.states[id];
+      return `${s?.state}@${s?.attributes?.date ?? ""}`;
+    }).join("|");
+  }
+
+  // BoM sensors carry a `date` attribute; key by it rather than the _N index
+  // so the mapping stays right across BoM's post-midnight refresh lag.
+  _rainForecast() {
+    const out = {};
+    if (!this._hass || !this._cfg.rainForecastPrefix) return out;
+    for (let n = 0; n < 7; n++) {
+      const [min, max] = this._forecastEntityIds(n).map(id => this._hass.states[id]);
+      const date = (max?.attributes?.date ?? min?.attributes?.date ?? "").slice(0, 10);
+      if (date) out[date] = { min: parseFloat(min?.state), max: parseFloat(max?.state) };
+    }
+    return out;
+  }
+
+  // BoM's lower figure has a 50% chance of being exceeded, so it leads the label.
+  _forecastLabel(f) {
+    if (!f || !(f.max > 0)) return "";
+    return f.min > 0 ? `${f.min}+` : `&lt;${f.max}`;
+  }
+
+  _fmtRain(mm) {
+    if (!(mm > 0)) return "";
+    return mm < 10 ? String(Math.round(mm * 10) / 10) : String(Math.round(mm));
   }
 
   // ── API: toggle a day ─────────────────────────────────────────────────────
@@ -208,6 +301,7 @@ class HaCalendarPicker extends HTMLElement {
     else this._viewMonth--;
     this._eventsLoaded = false;
     this._fetchEvents();
+    this._fetchRainHistory();
   }
 
   _nextMonth() {
@@ -215,6 +309,7 @@ class HaCalendarPicker extends HTMLElement {
     else this._viewMonth++;
     this._eventsLoaded = false;
     this._fetchEvents();
+    this._fetchRainHistory();
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -255,6 +350,10 @@ class HaCalendarPicker extends HTMLElement {
     const firstDay    = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const todayStr    = this._fmtDate(this._today);
+    const forecast    = this._rainForecast();
+    const rainToday   = this._cfg.rainEntity
+      ? parseFloat(this._hass?.states[this._cfg.rainEntity]?.state)
+      : NaN;
 
     let cells = "";
     for (let i = 0; i < firstDay; i++) {
@@ -277,10 +376,24 @@ class HaCalendarPicker extends HTMLElement {
         isBlocked  && "blocked",
       ].filter(Boolean).join(" ");
 
+      const fc    = isPast ? undefined : forecast[dateStr];
+      const fcTxt = this._forecastLabel(fc);
+      const obs   = isToday ? rainToday : isPast ? this._rainObserved[dateStr] : NaN;
+      const obsTxt = this._fmtRain(obs);
+
+      // Hover tooltip carries the full BoM range, which doesn't fit in the cell.
+      const tip = [
+        dateStr,
+        fcTxt  && `Forecast ${fc.min > 0 ? fc.min : 0}–${fc.max} mm`,
+        obsTxt && `Rain ${obsTxt} mm${isToday ? " so far" : ""}`,
+      ].filter(Boolean).join(" · ");
+
       cells += `
-        <div class="${classes}" data-date="${dateStr}" title="${dateStr}">
+        <div class="${classes}" data-date="${dateStr}" title="${tip}">
           ${isSelected && !isLoading ? `<span class="icon">${this._cfg.icon}</span>` : ""}
           <span class="day-num">${d}</span>
+          ${fcTxt  ? `<span class="rain fc">${fcTxt}</span>`   : ""}
+          ${obsTxt ? `<span class="rain obs">${obsTxt}</span>` : ""}
           ${isLoading               ? `<span class="spinner"></span>`               : ""}
         </div>`;
     }
@@ -476,6 +589,18 @@ class HaCalendarPicker extends HTMLElement {
         font-size: 0.65rem;
         line-height: 1;
       }
+
+      .rain {
+        position: absolute;
+        right: 4px;
+        font-size: 0.6rem;
+        font-weight: 700;
+        line-height: 1;
+        color: var(--hcp-text);
+        pointer-events: none;
+      }
+      .rain.fc  { top: 3px; }
+      .rain.obs { bottom: 3px; }
 
       .spinner {
         position: absolute;
