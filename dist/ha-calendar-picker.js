@@ -19,7 +19,7 @@
 //   rain_entity: sensor.rain_today   # optional — daily rainfall total (mm)
 //   rain_forecast_prefix: sensor.x   # optional — BoM <prefix>_rain_amount_min_N / _max_N
 
-const VERSION = "1.2.0";
+const VERSION = "1.2.1";
 
 const MONTHS = [
   "January","February","March","April","May","June",
@@ -367,19 +367,20 @@ class HaCalendarPicker extends HTMLElement {
       const isPast     = dateStr < todayStr;
       const isBlocked  = isPast && !this._cfg.allowPast;
 
+      const fc    = isPast ? undefined : forecast[dateStr];
+      const fcTxt = this._forecastLabel(fc);
+      const obs   = isToday ? rainToday : isPast ? this._rainObserved[dateStr] : NaN;
+      const obsTxt = this._fmtRain(obs);
+
       const classes = [
         "day",
         isToday    && "today",
         isSelected && "selected",
         isLoading  && "loading",
         isPast     && "past",
+        isPast && obsTxt && "has-rain",
         isBlocked  && "blocked",
       ].filter(Boolean).join(" ");
-
-      const fc    = isPast ? undefined : forecast[dateStr];
-      const fcTxt = this._forecastLabel(fc);
-      const obs   = isToday ? rainToday : isPast ? this._rainObserved[dateStr] : NaN;
-      const obsTxt = this._fmtRain(obs);
 
       // Hover tooltip carries the full BoM range, which doesn't fit in the cell.
       const tip = [
@@ -551,6 +552,9 @@ class HaCalendarPicker extends HTMLElement {
       /* Past dimming targets the date and indicator, not the whole cell, so
          corner data (e.g. observed rainfall) stays readable. */
       .day.past { background: transparent; }
+      /* Without a tile, a past day's rain figure floats near the cell gap and
+         reads as belonging to the next day. */
+      .day.past.has-rain { background: color-mix(in srgb, var(--hcp-text) 3%, transparent); }
       .day.past .day-num, .day.past .icon { opacity: 0.35; }
       .day.past.selected {
         background: color-mix(in srgb, var(--hcp-text-2) 12%, transparent);
