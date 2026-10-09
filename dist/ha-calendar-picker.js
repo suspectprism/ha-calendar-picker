@@ -19,7 +19,7 @@
 //   rain_entity: sensor.rain_today   # optional — daily rainfall total (mm)
 //   rain_forecast_prefix: sensor.x   # optional — BoM <prefix>_rain_amount_min_N / _max_N
 
-const VERSION = "1.3.0";
+const VERSION = "1.3.1";
 
 const MONTHS = [
   "January","February","March","April","May","June",
