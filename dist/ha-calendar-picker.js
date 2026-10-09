@@ -19,7 +19,7 @@
 //   rain_entity: sensor.rain_today   # optional — daily rainfall total (mm)
 //   rain_forecast_prefix: sensor.x   # optional — BoM <prefix>_rain_amount_min_N / _max_N
 
-const VERSION = "1.2.1";
+const VERSION = "1.3.0";
 
 const MONTHS = [
   "January","February","March","April","May","June",
@@ -48,7 +48,8 @@ class HaCalendarPicker extends HTMLElement {
     this._eventMap     = {};          // "YYYY-MM-DD" -> uid string | null
     this._loading      = new Set();   // days currently being toggled
     this._eventsLoaded = false;
-    this._lastError    = null;        // string | null
+    this._loadError    = null;        // string | null — from fetching events
+    this._actionError  = null;        // string | null — from the last day toggle
     this._rainObserved = {};          // "YYYY-MM-DD" -> mm (past days, from statistics)
     this._rainSig      = "";          // last-rendered live rain state, to skip no-op renders
   }
@@ -125,10 +126,10 @@ class HaCalendarPicker extends HTMLElement {
       this._selectedDays = newSelected;
       this._eventMap     = newMap;
       this._eventsLoaded = true;
-      this._lastError    = null;
+      this._loadError    = null;
     } catch (e) {
       this._eventsLoaded = true;
-      this._lastError = `Failed to load calendar: ${e.message || e}`;
+      this._loadError = `Failed to load calendar: ${e.message || e}`;
     }
 
     this._render();
@@ -216,7 +217,7 @@ class HaCalendarPicker extends HTMLElement {
 
     // Optimistic update so the UI responds immediately
     this._loading.add(dateStr);
-    this._lastError = null;
+    this._actionError = null;
     wasSelected
       ? this._selectedDays.delete(dateStr)
       : this._selectedDays.add(dateStr);
@@ -233,7 +234,7 @@ class HaCalendarPicker extends HTMLElement {
       wasSelected
         ? this._selectedDays.add(dateStr)
         : this._selectedDays.delete(dateStr);
-      this._lastError = e.message || String(e);
+      this._actionError = e.message || String(e);
     }
 
     this._loading.delete(dateStr);
@@ -259,24 +260,14 @@ class HaCalendarPicker extends HTMLElement {
     if (!uid) {
       throw new Error(`No event UID found for ${dateStr} — try refreshing`);
     }
-    // Prefer the native action (works with Google Calendar etc.); fall back to
-    // the calendar_utils HACS integration for Local Calendar, which has never
-    // exposed calendar.delete_event.
-    if (this._hass.services?.calendar?.delete_event) {
-      await this._hass.callService("calendar", "delete_event", {
-        entity_id: this._cfg.entity,
-        uid,
-      });
-    } else if (this._hass.services?.calendar_utils?.delete_event_by_uid) {
-      await this._hass.callService("calendar_utils", "delete_event_by_uid", {
-        entity_id: this._cfg.entity,
-        uid,
-      });
-    } else {
-      throw new Error(
-        "Cannot delete event: install the 'Calendar Utils' integration from HACS (Integrations)"
-      );
-    }
+    // HA has no calendar.delete_event action; this websocket command is what
+    // HA's own Calendar panel uses. It works for any calendar entity that
+    // supports deletion (Local Calendar, Google, CalDAV, ...).
+    await this._hass.callWS({
+      type:      "calendar/event/delete",
+      entity_id: this._cfg.entity,
+      uid,
+    });
   }
 
   async _queryUid(dateStr) {
@@ -321,7 +312,9 @@ class HaCalendarPicker extends HTMLElement {
       ${this._styles()}
       <ha-card style="--hcp-accent:${this._cfg.accentColor}">
         ${this._renderHeader()}
-        ${this._lastError ? this._renderError(this._lastError) : ""}
+        ${this._actionError || this._loadError
+          ? this._renderError(this._actionError || this._loadError)
+          : ""}
         ${!this._eventsLoaded
           ? `<div class="loading-overlay">Loading calendar…</div>`
           : this._renderGrid()}
