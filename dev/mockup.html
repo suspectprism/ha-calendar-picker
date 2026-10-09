@@ -50,8 +50,9 @@
   const OBSERVED = { [-1]: 2.6, [-2]: 0.4, [-5]: 12.3, [-9]: 0.2, [-20]: 7.94, [-33]: 18 };
   const FORECAST = [[15, 30], [5, 10], [0, 1], [0, 0], [0, 5], [0, 0], [1, 5]];
 
-  function mockHass(eventOffsets, { rain = true } = {}) {
-    const events = eventOffsets.map((n, i) => ({ uid: "u" + i, start: { dateTime: rel(n) + "T00:00:00" } }));
+  function mockHass(eventOffsets, { rain = true, canDelete = true } = {}) {
+    let events = eventOffsets.map((n, i) => ({ uid: "u" + i, start: { dateTime: rel(n) + "T00:00:00" } }));
+    let nextUid = 100;
     const states = {};
     if (rain) {
       states[RAIN_ENTITY] = { state: "31" };
@@ -65,8 +66,19 @@
       states,
       services: {},
       async callApi() { return events; },
-      async callService() {},
+      async callService(domain, service, data) {
+        if (service === "create_event") {
+          events = [...events, { uid: "u" + nextUid++, start: { dateTime: data.start_date_time.replace(" ", "T") } }];
+        }
+      },
       async callWS(msg) {
+        if (msg.type === "calendar/event/delete") {
+          // HA rejects websocket calls with { code, message }, not an Error.
+          if (!canDelete) throw { code: "not_supported", message: "Calendar does not support event deletion" };
+          if (!events.some(e => e.uid === msg.uid)) throw { code: "failed", message: `No event with uid ${msg.uid}` };
+          events = events.filter(e => e.uid !== msg.uid);
+          return null;
+        }
         if (msg.type !== "recorder/statistics_during_period") throw new Error("unexpected " + msg.type);
         const rows = Object.entries(OBSERVED).map(([n, change]) => {
           const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + +n);
